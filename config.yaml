@@ -1,0 +1,140 @@
+# =============================================================================
+# EMPIRE NUTS2 pipeline — North Sea case configuration
+# =============================================================================
+#
+# Disaggregates Norway, the United Kingdom, Denmark, Germany and the
+# Netherlands into their 102 NUTS2 regions; every other country stays a single
+# EMPIRE node.  Run the pipeline with:
+#
+#     python main.py <empire_folder> --output-folder <subfolder>
+#
+# Command-line flags override the values below.  See README.md for details.
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# Input data
+# -----------------------------------------------------------------------------
+
+# IAMC input file (absolute or relative to the project root).  Holds generation
+# capacities, network and demand-share variables for the 102 NUTS2 regions.
+# Duplicate plant-level rows are summed to NUTS2 totals on load (iamc_utils).
+iamc_file: data/IAMC/NorthSea/North_Sea.xlsx
+
+# IAMC scenario name.  Leave unset: the file describes one scenario and every
+# row repeats its name, so main.py reads the name out of the file itself.
+#   scenario: "Transmission v1.0"
+
+# EMPIRE reference dataset folder under data/EMPIRE/.  Use one of the *_Norway
+# variants, in which the five Norwegian price zones (NO1..NO5) have been merged
+# into one 'Norway' node by Scripts/preprocess_norway.py:
+#   GoRES_Norway, NECPEssentials_Norway, REPowerEU++_Norway, Trinity_Norway
+empire_folder: NECPEssentials_Norway
+
+# Optional subfolder inside Result/.  main.py appends the empire_folder name, so
+# this run lands in
+#   Result/NorthSea/NO_UK_DK_DE_NL/NorthSea_NECPEssentials/NECPEssentials_Norway/
+# Pass --output-folder on the command line to change it per reference dataset.
+output_folder: "NorthSea/NO_UK_DK_DE_NL/NorthSea_NECPEssentials"
+
+# Optional: directory with region-specific solar/onshore-wind capacity factors
+# produced by Scripts/preprocess_renewables_atlite.py (solar.csv and
+# windonshore.csv).  When set, these weather-consistent series replace the
+# national series outright.  Leave empty to use renewable_cf below instead.
+atlite_dir: ""
+
+
+# -----------------------------------------------------------------------------
+# Regional capacity factors for solar / onshore wind (data/Renewable/NorthSea)
+# -----------------------------------------------------------------------------
+#
+# Without this section every NUTS2 region copies its country's capacity factor,
+# so there is no intra-country resource variation.  With it, solar.csv and
+# windonshore.csv are rescaled per region from two pan-European resource
+# atlases (onshore.csv, Solar.xlsx).  Offshore wind stays broadcast: there is
+# no per-region offshore CF source.
+#
+# mode:
+#   relative  Use only the *spatial pattern* of the atlas; multipliers are
+#             capacity-weighted to average 1.0 so each country's national CF
+#             and annual energy are unchanged.
+#   absolute  Scale each region to the atlas's own CF, replacing EMPIRE's
+#             national level.  Only safe when the two already agree.
+#
+# Use 'relative': these are optimally-sited potential atlases whose national
+# means sit well above EMPIRE's fleet-average CFs.
+#
+# Coverage is incomplete; regions without atlas data fall back to broadcast:
+#   onshore.csv  — NO 6/6, DK 5/5, DE 38/38, NL 12/12, UK 0/41 (no UK rows)
+#   Solar.xlsx   — UK 35/41, DK 5/5, DE 38/38, NL 10/12, NO 0/6 (no NO rows)
+renewable_cf:
+  dir: data/Renewable/NorthSea
+  mode: relative
+  countries: ["NO", "UK", "DK", "DE", "NL"]
+
+
+# -----------------------------------------------------------------------------
+# Load-flow (DC power flow / transmission expansion) data — optional
+# -----------------------------------------------------------------------------
+#
+# When enabled, the pipeline writes the extra sheets EMPIRE's load-flow module
+# needs:
+#
+#   Transmission.xlsx : lineReactance, CandidateTransmission,
+#                       LineBlockCapacity, LineBlockReactance
+#   General.xlsx      : NominalVoltage, LineBlockCapacityGlobal,
+#                       LineBlockReactanceGlobal
+#   Sets.xlsx         : LineTypeOfCandidateLines
+#
+# Candidate corridors = every existing corridor (reference or IAMC, AC and DC)
+# PLUS a new HVAC candidate for every pair of physically adjacent regions that
+# has no existing corridor (adjacency is derived from the NUTS shapefile).
+#
+# lineReactance for AC corridors is taken from the IAMC
+# 'Network|Electricity|Reactance' variable when present, otherwise computed as
+# length_km * reactance_per_km.  HVDC corridors are excluded from Ohm's law.
+load_flow:
+  # Set to true to generate the load-flow sheets described above.
+  enabled: false
+  # Reactance per unit length for computed reactances (Ohm/km).
+  reactance_per_km: 0.246
+  # Constant capacity of every candidate expansion block (MW).
+  block_capacity_mw: 1500
+  # Nominal grid voltage used to convert angle differences to MW (kV).
+  nominal_voltage_kv: 400
+
+
+# -----------------------------------------------------------------------------
+# Countries modelled at NUTS2
+# -----------------------------------------------------------------------------
+#
+# For each country give its two-letter NUTS prefix and
+#
+#   empire_node : the node name it replaces in the EMPIRE reference Sets.xlsx.
+#
+# NUTS2 region codes are detected automatically from the IAMC file; centroid
+# coordinates come from data/shp/NUTS_RG_20M_2024_3035.shp.
+#
+# empire_node MUST use the canonical, spaced spelling the pipeline emits:
+# 'Great Brit.' (with a space), not 'GreatBrit.'.  The reference workbooks
+# disagree — GoRES, NECPEssentials and REPowerEU++ write 'GreatBrit.', Trinity
+# writes 'Great Brit.' — and the pipeline normalises both to the spaced form.
+# With 'GreatBrit.' here the node would stay unmatched and Great Britain would
+# survive as a country node *alongside* its 41 UK NUTS2 regions.
+nuts2_countries:
+
+  # Quoted: YAML 1.1 parses a bare NO as the boolean false.
+  "NO":
+    empire_node: Norway   # the NO1..NO5 -> Norway merge from preprocess_norway.py
+
+  UK:
+    empire_node: Great Brit.
+
+  DK:
+    empire_node: Denmark
+
+  DE:
+    empire_node: Germany
+
+  NL:
+    empire_node: Netherlands

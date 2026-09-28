@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.pyc
+
+# Excel lock files
+~$*
+
+# Editor / tool config
+.vscode/
+.claude/
+
+# Pipeline logs and generated outputs
+run_logs/
+Result/

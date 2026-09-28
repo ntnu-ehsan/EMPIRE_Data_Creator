@@ -1,0 +1,9 @@
+pandas
+numpy
+pyam-iamc
+openpyxl
+pyyaml
+geopandas
+shapely
+# Optional: only for Scripts/preprocess_renewables_atlite.py
+# atlite
