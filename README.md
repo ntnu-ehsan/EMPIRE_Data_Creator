@@ -2,7 +2,14 @@
 
 Builds input datasets for the [EMPIRE](https://github.com/ntnuiotenergy/OpenEMPIRE) European power-system model in which the five North Sea countries — **Norway, the United Kingdom, Denmark, Germany and the Netherlands** — are resolved into their **102 NUTS2 regions**, while the rest of Europe stays at country level (NUTS0).
 
-The pipeline starts from an existing country-level EMPIRE reference dataset (one of the four [Energy Vision](https://energyvis.eu/) scenarios) and a regional IAMC-format file. It replaces each North Sea country node with its NUTS2 regions and distributes that country's capacities, demand, limits, transmission and hourly profiles across them. **National totals from the reference dataset are conserved**: the regional data only decide *where* inside a country things go, not *how much* there is.
+The repository holds all the data and code for a two-stage workflow, starting from the four country-level EMPIRE reference datasets of the [Energy Vision](https://energyvis.eu/) scenarios:
+
+1. **Norway aggregation** (`Scripts/preprocess_norway.py`). The reference datasets model Norway as five price zones (NO1–NO5). This stage merges them into one `Norway` node, turning `data/EMPIRE/<scenario>/` into `data/EMPIRE/<scenario>_Norway/`.
+2. **NUTS2 disaggregation** (`main.py`). This stage takes a `*_Norway` dataset and a regional IAMC-format file. It replaces each North Sea country node with its NUTS2 regions and distributes that country's capacities, demand, limits, transmission and hourly profiles across them.
+
+**National totals from the reference dataset are conserved** in both stages. The regional data only decide *where* inside a country things go, not *how much* there is.
+
+The outputs of stage 1 are included, so you can start directly at stage 2. Stage 1 can be rerun at any time and reproduces them.
 
 | Country | EMPIRE node replaced | NUTS2 regions |
 |---|---|---|
@@ -43,7 +50,11 @@ conda create -n empire-northsea python=3.11
 conda activate empire-northsea
 pip install -r requirements.txt
 
-# 2. Build one dataset (NECP Essentials reference, settings from config.yaml)
+# 2. Stage 1 — merge NO1–NO5 into one Norway node in all four reference datasets
+#    (optional: the *_Norway folders are already included)
+python Scripts/preprocess_norway.py --all
+
+# 3. Stage 2 — build one NUTS2 dataset (NECP Essentials, settings from config.yaml)
 python main.py
 ```
 
@@ -90,8 +101,12 @@ Each run takes a few minutes. The ScenarioData step (hourly time series) is the 
 │   ├── preprocess_renewables_atlite.py# Optional: per-region CF series from weather data
 │   └── test_hydro_weights.py          # Unit tests for the hydro weighting
 └── data/
-    ├── EMPIRE/                        # Reference datasets (Norway already merged)
-    │   ├── GoRES_Norway/
+    ├── EMPIRE/                        # Country-level EMPIRE reference datasets
+    │   ├── GoRES/                     #   original, Norway as NO1–NO5 (stage 1 input)
+    │   ├── NECPEssentials/
+    │   ├── REPowerEU++/
+    │   ├── Trinity/
+    │   ├── GoRES_Norway/              #   Norway merged (stage 1 output, stage 2 input)
     │   ├── NECPEssentials_Norway/
     │   ├── REPowerEU++_Norway/
     │   └── Trinity_Norway/
@@ -108,32 +123,47 @@ Each run takes a few minutes. The ScenarioData step (hourly time series) is the 
 
 ## Input data
 
-### EMPIRE reference datasets — `data/EMPIRE/<scenario>_Norway/`
+### EMPIRE reference datasets — `data/EMPIRE/`
 
-Each folder is a complete country-level EMPIRE dataset for one Energy Vision scenario:
+Each folder is a complete country-level EMPIRE dataset for one Energy Vision scenario, in two versions:
 
-| Folder | Scenario |
+| Scenario | Original (NO1–NO5) | Norway merged |
+|---|---|---|
+| Go RES | `GoRES` | `GoRES_Norway` |
+| NECP Essentials | `NECPEssentials` | `NECPEssentials_Norway` |
+| REPowerEU++ | `REPowerEU++` | `REPowerEU++_Norway` |
+| Trinity | `Trinity` | `Trinity_Norway` |
+
+Each contains `General.xlsx`, `Generator.xlsx`, `Node.xlsx`, `Sets.xlsx`, `Storage.xlsx`, `Transmission.xlsx` and a `ScenarioData/` folder of hourly CSVs (`electricload`, `hydroror`, `hydroseasonal`, `solar`, `windonshore`, `windoffshore`, plus `sampling_key`). The original `REPowerEU++` folder has no `sampling_key.csv`.
+
+### Stage 1 — Norway aggregation (`Scripts/preprocess_norway.py`)
+
+Stage 2 needs exactly one node per disaggregated country, but the original datasets split Norway into five price zones. The script merges them into one `Norway` node:
+
+| File | Treatment |
 |---|---|
-| `GoRES_Norway` | Go RES |
-| `NECPEssentials_Norway` | NECP Essentials |
-| `REPowerEU++_Norway` | REPowerEU++ |
-| `Trinity_Norway` | Trinity |
+| `Generator.xlsx` | `RefInitialCap`, `InitialCapacity`, `MaxBuiltCapacity`, `MaxInstalledCapacity` summed over NO1–NO5 |
+| `Node.xlsx` | `ElectricAnnualDemand`, `HydroGenMaxAnnualProduction`, `BiomassMaxAnnualActivity` summed; `NodeLostLoadCost` taken from NO1 |
+| `Storage.xlsx` | All per-node capacity sheets summed |
+| `Transmission.xlsx` | Internal NO–NO corridors removed; external corridors sharing an endpoint merged with capacities summed |
+| `Sets.xlsx` | NO1–NO5 replaced by `Norway` in every sheet |
+| `ScenarioData/` | `electricload.csv` summed; capacity-factor CSVs capacity-weighted; `windoffshore.csv` already has a Norway column and is kept |
+| `General.xlsx` | Copied unchanged |
 
-Each contains `General.xlsx`, `Generator.xlsx`, `Node.xlsx`, `Sets.xlsx`, `Storage.xlsx`, `Transmission.xlsx` and a `ScenarioData/` folder of hourly CSVs (`electricload`, `hydroror`, `hydroseasonal`, `solar`, `windonshore`, `windoffshore`, plus `sampling_key`).
-
-The original datasets model Norway as five price zones (NO1–NO5). The pipeline needs one node per disaggregated country, so these `_Norway` variants were made with `Scripts/preprocess_norway.py`. The script:
-
-- sums capacities, demand, hydro energy and storage across the zones,
-- removes the internal NO–NO corridors and merges the external ones,
-- combines the hourly profiles (load summed, capacity factors capacity-weighted).
-
-To rebuild them from the original five-zone datasets, place those under `data/EMPIRE/<scenario>/` and run:
+At the end, the script checks its own output. It confirms that no NO1–NO5 names remain, that the CSVs use the `Norway` column name, and that every generator profiled in ScenarioData exists on the Norway node.
 
 ```bash
-python Scripts/preprocess_norway.py data/EMPIRE/NECPEssentials data/EMPIRE/NECPEssentials_Norway
-# or all four at once
+# all four datasets: data/EMPIRE/<scenario> -> data/EMPIRE/<scenario>_Norway
 python Scripts/preprocess_norway.py --all
+
+# one dataset (a bare name is looked up under data/EMPIRE/)
+python Scripts/preprocess_norway.py NECPEssentials
+
+# explicit input and output folders
+python Scripts/preprocess_norway.py data/EMPIRE/NECPEssentials path/to/NECPEssentials_Norway
 ```
+
+Running it on the included originals reproduces the included `*_Norway` folders cell for cell. Rerunning it overwrites them in place. The only file it does not produce is `REPowerEU++_Norway/ScenarioData/sampling_key.csv`, because the original `REPowerEU++` folder has none. The included copy is left untouched by a rerun.
 
 ### IAMC regional data — `data/IAMC/NorthSea/North_Sea.xlsx`
 
@@ -202,6 +232,20 @@ Note that `NO` must be quoted (`"NO"`), because YAML 1.1 reads a bare `NO` as `f
 ---
 
 ## Running the pipeline
+
+The full chain from the original reference data to a NUTS2 dataset is:
+
+```
+data/EMPIRE/<scenario>/            original, Norway as NO1–NO5
+        │  Stage 1: Scripts/preprocess_norway.py
+        ▼
+data/EMPIRE/<scenario>_Norway/     one Norway node
+        │  Stage 2: main.py  (+ IAMC file, atlases, NUTS shapes)
+        ▼
+Result/.../<scenario>_Norway/      NO/UK/DK/DE/NL at NUTS2
+```
+
+Stage 1 is described [above](#stage-1--norway-aggregation-scriptspreprocess_norwaypy). Stage 2 is run with:
 
 ```
 python main.py [empire_folder] [--iamc PATH] [--scenario NAME]
