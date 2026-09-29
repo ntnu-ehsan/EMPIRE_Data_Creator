@@ -114,7 +114,9 @@ Each run takes a few minutes. The ScenarioData step (hourly time series) is the 
     ├── Renewable/NorthSea/            # Regional wind/solar resource atlases
     │   ├── onshore.csv
     │   └── Solar.xlsx
-    └── shp/NUTS_RG_20M_2024_3035.*    # NUTS 2024 boundaries (EPSG:3035)
+    └── shp/
+        ├── NUTS_RG_20M_2024_3035.*    # NUTS 2024 boundaries (NO/DK/DE/NL and neighbours)
+        └── NUTS_RG_60M_2021_3035.geojson # NUTS 2021 boundaries (fills the UK regions)
 ```
 
 `Result/` (outputs) and `run_logs/` are created on demand and are git-ignored.
@@ -163,7 +165,7 @@ python Scripts/preprocess_norway.py NECPEssentials
 python Scripts/preprocess_norway.py data/EMPIRE/NECPEssentials path/to/NECPEssentials_Norway
 ```
 
-Running it on the included originals reproduces the included `*_Norway` folders cell for cell. Rerunning it overwrites them in place. The only file it does not produce is `REPowerEU++_Norway/ScenarioData/sampling_key.csv`, because the original `REPowerEU++` folder has none. The included copy is left untouched by a rerun.
+Running it on the included originals reproduces the included `*_Norway` folders cell for cell. Rerunning it overwrites them in place. Git will then list the `.xlsx` files as modified: they are saved again as new files, but their contents are the same. The only file it does not produce is `REPowerEU++_Norway/ScenarioData/sampling_key.csv`, because the original `REPowerEU++` folder has none. The included copy is left untouched by a rerun.
 
 ### IAMC regional data — `data/IAMC/NorthSea/North_Sea.xlsx`
 
@@ -189,7 +191,14 @@ Both are pan-European *potential* atlases (optimally sited plants), so their lev
 
 ### NUTS boundaries — `data/shp/`
 
-Eurostat GISCO `NUTS_RG_20M_2024_3035` (NUTS 2024, 1:20 million, EPSG:3035). Used for region centroids, corridor lengths, coastal distance for offshore reconnection, and land-border adjacency.
+Two Eurostat GISCO boundary files (EPSG:3035) are needed, because no single NUTS version covers every region in the case:
+
+| File | Version | Why it is needed |
+|---|---|---|
+| `NUTS_RG_20M_2024_3035.shp` (+ `.dbf`, `.shx`, `.prj`, `.cpg`) | NUTS 2024, 1:20 million | Has the current codes, including the revised Dutch regions (`NL35`, `NL36`) |
+| `NUTS_RG_60M_2021_3035.geojson` | NUTS 2021, 1:60 million | Has the 41 UK regions, which NUTS 2024 dropped after Brexit |
+
+The pipeline looks up each region in the 2024 file first and uses the 2021 file only for regions still missing. In practice, that means the UK regions. The boundaries give region centroids, corridor lengths, coastal distance for offshore reconnection, and land-border adjacency. Without the 2021 file, the UK regions have no geometry. The offshore hubs landing in Great Britain (Dogger Bank, Hornsea, East Anglia, …) then cannot be reconnected, and the transmission step stops with an error.
 
 ---
 
@@ -454,5 +463,5 @@ python -m unittest test_hydro_weights -v
 
 - **EMPIRE model:** [OpenEMPIRE](https://github.com/ntnuiotenergy/OpenEMPIRE), NTNU.
 - **Reference scenarios:** Energy Vision scenario datasets (GoRES, NECP Essentials, REPowerEU++, Trinity) — <https://energyvis.eu/>.
-- **NUTS boundaries:** © EuroGeographics for the administrative boundaries; Eurostat GISCO, NUTS 2024.
+- **NUTS boundaries:** © EuroGeographics for the administrative boundaries; Eurostat GISCO, NUTS 2024 and NUTS 2021.
 - **Renewable atlases:** pan-European NUTS2 onshore-wind and solar potential datasets (`data/Renewable/NorthSea/`).
